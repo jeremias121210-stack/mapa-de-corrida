@@ -1,0 +1,32 @@
+name: Barros Map Core - Prova 1
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch: {}
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+concurrency:
+  group: pages
+  cancel-in-progress: false
+jobs:
+  build-e-publicar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Gerar o mapa
+        run: |
+          chmod +x build-tiles.sh
+          ./build-tiles.sh
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: public
+      - id: deployment
+        uses: actions/deploy-pages@v4
+      - name: Link publicado
+        run: echo "PROVA 1 PUBLICADA - ${{ steps.deployment.outputs.page_url }}"
