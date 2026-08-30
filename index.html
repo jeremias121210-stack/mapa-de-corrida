@@ -1871,6 +1871,10 @@ html,body{height:100%;background:var(--asphalt);font-family:-apple-system,'Inter
 .sheet b.t{font-size:13px;letter-spacing:.1em;text-transform:uppercase;display:block;margin-bottom:10px}
 .m-row{display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid var(--line);font-size:13px}
 .m-row span{color:var(--dim)}
+.seg{display:flex;gap:6px;flex-wrap:wrap;padding:10px 0 4px}
+.seg button{flex:1;min-width:70px;background:transparent;border:1px solid var(--line);color:var(--dim);border-radius:10px;padding:8px 6px;font-size:12px}
+.seg button.on{border-color:#FF6B35;color:#FF6B35}
+.seg button.tec{opacity:.6;font-size:11px}
 .log{font-size:11px;color:var(--dim);margin-top:8px;line-height:1.7;font-family:ui-monospace,monospace;max-height:130px;overflow-y:auto}
 .pose{display:flex;gap:12px;align-items:center;padding:11px 0;border-bottom:1px solid var(--line);font-size:14px}
 .pose:last-of-type{border:none}
@@ -1939,6 +1943,14 @@ html,body{height:100%;background:var(--asphalt);font-family:-apple-system,'Inter
   <div class="m-row"><span>Tiles carregados</span><i id="e-tiles">0</i></div>
   <div class="m-row"><span>Pontos GPS</span><i id="e-pontos">0</i></div>
   <div class="m-row"><span>Precisão média</span><i id="e-acc">—</i></div>
+  <div class="m-row"><span>Aceitos / recebidos</span><i id="e-aceitos">0 / 0</i></div>
+  <div class="m-row"><span>Rejeitados</span><i id="e-rej">—</i></div>
+  <div class="m-row"><span>Distância crua / filtrada</span><i id="e-crua">—</i></div>
+  <div class="m-row"><span>Tempo em movimento / parado</span><i id="e-mov">—</i></div>
+  <div class="m-row"><span>Tema do mapa</span><i id="e-tema">—</i></div>
+  <div class="m-row"><span>Sol (nascer / pôr)</span><i id="e-sol">—</i></div>
+  <div class="m-row"><span>Fuso · hora local</span><i id="e-fuso">—</i></div>
+  <div class="seg" id="seg-tema"><button data-t="auto">Automático</button><button data-t="day">Dia</button><button data-t="night">Noite</button><button data-t="dusk" class="tec">Entardecer (teste)</button></div>
   <div class="log" id="log"></div>
   <button class="btn sec" onclick="fecharSheets()">Fechar</button>
 </div>
@@ -1965,13 +1977,31 @@ html,body{height:100%;background:var(--asphalt);font-family:-apple-system,'Inter
 </div>
 
 <script>
+
+/* ---------- captura de erros · PREVIEW 1.5.1 ----------
+   Objetivo: nunca mais aceitar apenas "Script error." */
+function logSeguro(m){
+  try{var l=document.getElementById('log');
+    if(l)l.innerHTML=new Date().toTimeString().slice(0,8)+' · '+m+'<br>'+l.innerHTML;}catch(e){}
+}
+window.addEventListener('error',function(ev){
+  var m=(ev&&ev.message)||'?';
+  if(ev&&(ev.filename||ev.lineno))m+=' @'+(ev.filename||'inline')+':'+(ev.lineno||'?')+':'+(ev.colno||'?');
+  if(ev&&ev.error&&ev.error.stack)m+=' | '+String(ev.error.stack).split('\n').slice(0,2).join(' / ');
+  logSeguro('erro_global '+m);
+});
+window.addEventListener('unhandledrejection',function(ev){
+  var r=ev&&ev.reason,m=(r&&(r.message||r))||'?';
+  if(r&&r.stack)m+=' | '+String(r.stack).split('\n').slice(0,2).join(' / ');
+  logSeguro('promise_rejection '+m);
+});
 /* ============================================================
    MAPA DE CORRIDA · Web 1.3.0 — Barros Map Core
    Cartografia refinada · navegação viva · calor (demo) ·
    atleta animado · corrida livre · replay aéreo · foto/post
    ============================================================ */
-const APP_VERSION='corrida-web-1.3.0';
-const TILES_FILE='tiles/barros-map-pe.pmtiles';
+const APP_VERSION='corrida-web-1.5.1';
+const TILES_FILE='https://jeremias121210-stack.github.io/mapa-de-corrida/tiles/barros-map-pe.pmtiles'; /* PREVIEW */
 const CARUARU=[-35.9758,-8.2827];
 
 /* ---------- util ---------- */
@@ -1984,28 +2014,52 @@ function fecharSheets(){document.querySelectorAll('.sheet').forEach(s=>s.classLi
 function haversine(a,b){const R=6371000,r=x=>x*Math.PI/180;const dLa=r(b[1]-a[1]),dLo=r(b[0]-a[0]);const h=Math.sin(dLa/2)**2+Math.cos(r(a[1]))*Math.cos(r(b[1]))*Math.sin(dLo/2)**2;return 2*R*Math.asin(Math.sqrt(h));}
 function bearing(a,b){const r=x=>x*Math.PI/180,g=x=>x*180/Math.PI;const y=Math.sin(r(b[0]-a[0]))*Math.cos(r(b[1]));const x=Math.cos(r(a[1]))*Math.sin(r(b[1]))-Math.sin(r(a[1]))*Math.cos(r(b[1]))*Math.cos(r(b[0]-a[0]));return (g(Math.atan2(y,x))+360)%360;}
 
+/* ---------- storage seguro (1.5.1) ----------
+   Regra selada: falha de storage nunca impede o mapa de carregar. */
+function storageGet(key,fallback){
+  if(fallback===undefined)fallback=null;
+  try{const v=localStorage.getItem(key);return v===null?fallback:v;}
+  catch(e){log('storage_get_fail '+key);return fallback;}
+}
+function storageSet(key,value){
+  try{localStorage.setItem(key,value);return true;}
+  catch(e){log('storage_set_fail '+key);return false;}
+}
+
+log('boot_01_dom_ok');
+
 /* ---------- rede ---------- */
 function estadoRede(){navigator.onLine?chip('c-rede','chip ok'):(chip('c-rede','chip warn'),aviso('Sem internet. O mapa já visto continua.',4000));}
 addEventListener('online',estadoRede);addEventListener('offline',estadoRede);
 
 /* ---------- persistência ---------- */
-let idb=null;const req=indexedDB.open('barros-corrida',1);
-req.onupgradeneeded=e=>e.target.result.createObjectStore('sessao');
-req.onsuccess=e=>{idb=e.target.result;log('indexeddb_ok');};
+let idb=null;
+try{
+  const req=indexedDB.open('barros-corrida',1);
+  req.onupgradeneeded=e=>e.target.result.createObjectStore('sessao');
+  req.onsuccess=e=>{idb=e.target.result;log('indexeddb_ok');};
+  req.onerror=()=>log('indexeddb_erro');
+}catch(e){log('indexeddb_indisponivel '+(e&&e.name||''));}
+log('boot_01b_storage_ok');
 
 /* ---------- mapa ---------- */
 const protocol=new pmtiles.Protocol();
 maplibregl.addProtocol('pmtiles',protocol.tile);
+log('boot_02_pmtiles_protocol_ok');
 const tilesURL=new URL(TILES_FILE,location.href).href;
 BARROS_STYLE.sources.barros.url='pmtiles://'+tilesURL;
 BARROS_STYLE.glyphs='bglyphs://{fontstack}/{range}.pbf';
+log('tiles_url '+tilesURL);
+log('boot_03_style_config_ok');
 
 const map=new maplibregl.Map({container:'map',style:BARROS_STYLE,center:CARUARU,zoom:14.5,pitch:0,attributionControl:{compact:true},preserveDrawingBuffer:true});
+log('boot_04_map_constructor_ok');
 map.addControl(new maplibregl.ScaleControl({maxWidth:90,unit:'metric'}),'bottom-left');
 let ev={tiles:0,accs:[]};
-map.on('sourcedata',e=>{if(e.sourceId==='barros'&&e.tile){ev.tiles++;$('e-tiles').textContent=ev.tiles;}});
-map.on('error',e=>{log('erro: '+(e.error&&e.error.message||'?'));});
+map.on('sourcedata',e=>{if(e.sourceId==='barros'&&e.tile){ev.tiles++;$('e-tiles').textContent=ev.tiles;if(ev.tiles===1)log('pmtiles_primeiro_tile_ok');}});
+map.on('error',e=>{const er=e&&e.error;let m=(er&&er.message)||'?';if(e&&e.sourceId)m+=' [source '+e.sourceId+']';if(er&&er.status)m+=' [http '+er.status+']';if(er&&er.url)m+=' [url '+er.url+']';log('map_error '+m);});
 map.on('load',()=>{
+  log('boot_05_map_load');
   log('mapa_carregado');
   /* fontes de dados dinâmicos */
   map.addSource('trilha',{type:'geojson',data:vazio()});
@@ -2020,6 +2074,9 @@ map.on('load',()=>{
     'heatmap-opacity':.62,
     'heatmap-color':['interpolate',['linear'],['heatmap-density'],0,'rgba(0,0,0,0)',.25,'rgba(110,201,255,.35)',.5,'rgba(242,180,65,.55)',.75,'rgba(255,107,53,.75)',1,'rgba(255,60,40,.9)']
   }});
+  log('boot_06_dynamic_layers_ok');
+  log('boot_07_theme_init_start');
+  try{iniciarTema();log('boot_08_theme_init_ok');}catch(e){log('theme_init_fail '+(e&&e.message||e));}
 });
 function vazio(){return {type:'FeatureCollection',features:[]};}
 
@@ -2064,55 +2121,172 @@ function atletaCorre(sim){
 function atletaGira(g){el.querySelector('.rot').style.transform=`rotate(${g}deg)`;}
 
 /* ---------- GPS ---------- */
+/* 1.4.0 · GPS Precision — única camada alterada em relação à 1.3.0.
+   Núcleo puro (sem DOM) em GPSF; ligação com mapa/HUD logo abaixo. */
+const GPSF={
+  ACC_MAX:30,        // m · leitura pior que isso não entra no rastro
+  ACC_PRONTO:20,     // m · precisão para liberar a largada
+  DT_MIN:0.8,        // s · leituras mais próximas que isso são ignoradas
+  V_MAX:7,           // m/s · acima disso é salto (25 km/h)
+  V_MOV:0.8,         // m/s · abaixo disso o atleta é considerado parado
+  R_PARADO:3,        // m · deslocamento em 5 s abaixo disso = "parado" (0,6 m/s)
+  SAIR_PARADO:8,     // m · deslocamento consistente para sair de "parado"
+  RUMO_MIN:15,       // m · deslocamento mínimo para atualizar o rumo
+  RUMO_PASSO:25,     // ° · giro máximo do boneco por leitura
+  JANELA:4,          // leituras usadas na suavização
+  novo(){return {raw:[],hist:[],suave:null,suavePrev:null,parado:true,saida:0,saidaRumo:null,rumo:null,rumoPos:null,rumoAcum:0,vel:0,ultT:null,pronto:0,prontoLento:0};},
+  /* média ponderada por 1/acc² das últimas JANELA leituras */
+  suavizar(raw){
+    const j=raw.slice(-GPSF.JANELA);let sw=0,sx=0,sy=0;
+    for(const r of j){const w=1/(r.acc*r.acc);sw+=w;sx+=w*r.lng;sy+=w*r.lat;}
+    return [sx/sw,sy/sw];
+  },
+  /* deslocamento da posição suavizada nos últimos ~5 s (Infinity se não há histórico) */
+  deslocRecente(st,t){
+    const h=st.hist;if(h.length<2)return Infinity;
+    let ref=null;for(const e of h){if(t-e.t>=5000)ref=e;}
+    if(!ref)return Infinity;
+    return haversine(ref.pos,st.suave);
+  },
+  /* processa uma leitura crua. Devolve {ok, motivo, mov, pos, vel, dt} */
+  passo(st,lng,lat,acc,t,speed,heading){
+    if(acc>GPSF.ACC_MAX)return {ok:false,motivo:'prec'};
+    if(st.ultT!==null){const dt=(t-st.ultT)/1000;if(!(dt>=GPSF.DT_MIN))return {ok:false,motivo:'dt'};}
+    const dt=st.ultT===null?0:(t-st.ultT)/1000;
+    st.ultT=t;
+    st.raw.push({lng,lat,acc,t});if(st.raw.length>12)st.raw.shift();
+    // prontidão para largada
+    st.pronto=acc<=GPSF.ACC_PRONTO?st.pronto+1:0;
+    st.prontoLento=acc<=GPSF.ACC_MAX?st.prontoLento+1:0;
+    st.suavePrev=st.suave;st.suave=GPSF.suavizar(st.raw);
+    const d=st.suavePrev?haversine(st.suavePrev,st.suave):0;
+    const velGeo=dt>0?d/dt:0;
+    const velSens=(typeof speed==='number'&&speed>=0)?speed:null;
+    const vel=velSens!==null?velSens:velGeo;st.vel=vel;
+    // salto impossível
+    if(dt>0&&velGeo>GPSF.V_MAX&&d>2*acc){
+      st.saltos=(st.saltos||0)+1;
+      if(st.saltos<3){st.raw.pop();st.suave=st.suavePrev;return {ok:false,motivo:'salto'};}
+      // 3 saltos seguidos: o GPS realmente mudou de lugar. Recomeça a partir daqui, parado.
+      st.raw=[{lng,lat,acc,t}];st.hist=[];st.suave=[lng,lat];st.suavePrev=null;st.parado=true;st.saida=0;st.saidaRumo=null;st.rumoPos=null;st.saltos=0;
+      return {ok:false,motivo:'salto'};
+    }
+    st.saltos=0;
+    // parado / em movimento
+    st.hist.push({pos:st.suave,t});while(st.hist.length&&t-st.hist[0].t>8000)st.hist.shift();
+    const recente=GPSF.deslocRecente(st,t);
+    const quieto=velSens!==null?velSens<0.5:(recente===Infinity||recente<=GPSF.R_PARADO);
+    if(st.parado){
+      if(!quieto&&d>=0.5){
+        const b=st.suavePrev?bearing(st.suavePrev,st.suave):null;
+        if(st.saidaRumo===null||b===null||Math.abs(((b-st.saidaRumo+540)%360)-180)<60){st.saida+=d;st.saidaRumo=b;}
+        else {st.saida=d;st.saidaRumo=b;}
+        if(st.saida>=GPSF.SAIR_PARADO){st.parado=false;st.saida=0;st.saidaRumo=null;}
+      } else {st.saida=0;st.saidaRumo=null;}
+    } else if(quieto||vel<GPSF.V_MOV){st.parado=true;st.saida=0;st.saidaRumo=null;}
+    // rumo do boneco
+    if(!st.parado&&vel>GPSF.V_MOV){
+      if(!st.rumoPos)st.rumoPos=st.suave;
+      st.rumoAcum=haversine(st.rumoPos,st.suave);
+      if(st.rumoAcum>=GPSF.RUMO_MIN){
+        const alvo=(typeof heading==='number'&&!isNaN(heading)&&heading>=0)?heading:bearing(st.rumoPos,st.suave);
+        st.rumo=st.rumo===null?alvo:GPSF.girar(st.rumo,alvo);
+        st.rumoPos=st.suave;
+      }
+    }
+    return {ok:true,mov:!st.parado,pos:st.suave,vel,dt,d};
+  },
+  girar(atual,alvo){
+    let dif=((alvo-atual+540)%360)-180;
+    if(Math.abs(dif)>GPSF.RUMO_PASSO)dif=Math.sign(dif)*GPSF.RUMO_PASSO;
+    return (atual+dif+360)%360;
+  }
+};
+
 let pos=null,ultAcc=null,rumo=0,watchId=null,markerOn=false;
+const gps=GPSF.novo();
+const gst={rec:0,ace:0,rej:{prec:0,dt:0,salto:0,parado:0}};
+function gpsPronto(){return gps.pronto>=3||gps.prontoLento>=5;}
+function painelGPS(){
+  const r=gst.rej;
+  if($('e-aceitos'))$('e-aceitos').textContent=gst.ace+' / '+gst.rec;
+  if($('e-rej'))$('e-rej').textContent='prec '+r.prec+' · parado '+r.parado+' · salto '+r.salto+' · dt '+r.dt;
+  if($('e-crua'))$('e-crua').textContent=Math.floor(corrida.distCrua||0)+' m / '+Math.floor(corrida.dist||0)+' m';
+  if($('e-mov'))$('e-mov').textContent=fmt(corrida.tMov||0)+' / '+fmt(Math.max(0,((corrida.fim||Date.now())-corrida.ini)/1000-(corrida.tMov||0)));
+}
 function iniciarGPS(){
   if(!('geolocation' in navigator)){chip('c-gps','chip warn');return;}
   watchId=navigator.geolocation.watchPosition(p=>{
-    const nova=[p.coords.longitude,p.coords.latitude];
-    ev.accs.push(p.coords.accuracy);
+    const c=p.coords,acc=c.accuracy;
+    gst.rec++;ev.accs.push(acc);
     $('e-pontos').textContent=ev.accs.length;
     $('e-acc').textContent=Math.round(ev.accs.reduce((a,b)=>a+b,0)/ev.accs.length)+' m';
-    $('acc').textContent='±'+Math.round(p.coords.accuracy)+' m';
-    if(p.coords.accuracy>60){chip('c-gps','chip warn');return;}
-    chip('c-gps','chip ok');
-    if(typeof p.coords.heading==='number'&&!isNaN(p.coords.heading)&&p.coords.heading>0)rumo=p.coords.heading;
-    else if(pos&&haversine(pos,nova)>2)rumo=bearing(pos,nova);
-    atletaGira(rumo-map.getBearing());
-    if(corrida.ativa)registrarPonto(nova,p.coords.accuracy);
-    pos=nova;ultAcc=p.coords.accuracy;
-    if(!markerOn){marker.setLngLat(pos).addTo(map);markerOn=true;map.flyTo({center:pos,zoom:16});log('gps_ok');}
-    else marker.setLngLat(pos);
+    $('acc').textContent='±'+Math.round(acc)+' m';
+    // distância crua (só para comparação no painel; nunca desenhada)
+    if(corrida.ativa&&corrida.cru.length){const dc=haversine(corrida.cru[corrida.cru.length-1],[c.longitude,c.latitude]);if(dc>1&&dc<80&&acc<=60)corrida.distCrua+=dc;}
+    if(corrida.ativa)corrida.cru.push([c.longitude,c.latitude,acc,p.timestamp]);
+    // primeira posição ainda sem qualidade: mostra o boneco, mas não libera nada
+    if(!markerOn&&acc<=60){pos=[c.longitude,c.latitude];marker.setLngLat(pos).addTo(map);markerOn=true;map.flyTo({center:pos,zoom:16});log('gps_ok ±'+Math.round(acc)+'m');}
+    const r=GPSF.passo(gps,c.longitude,c.latitude,acc,p.timestamp,c.speed,c.heading);
+    if(!r.ok){gst.rej[r.motivo]++;chip('c-gps',acc>GPSF.ACC_MAX?'chip warn':'chip ok');painelGPS();return;}
+    gst.ace++;chip('c-gps','chip ok');
+    pos=r.pos;ultAcc=acc;
+    if(gps.rumo!==null){rumo=gps.rumo;atletaGira(rumo-map.getBearing());}
+    if(corrida.ativa){
+      if(r.mov)registrarPonto(pos,acc,r.dt);else gst.rej.parado++;
+      atletaCorre(r.mov&&r.vel>GPSF.V_MOV);
+    }
+    if(markerOn)marker.setLngLat(pos);
     if(seguir)map.easeTo({center:pos,duration:600});
+    painelGPS();
   },err=>{chip('c-gps','chip warn');if(err.code===1)aviso('Permita a localização para o mapa encontrar você.',4200);},
-  {enableHighAccuracy:true,maximumAge:1500});
+  {enableHighAccuracy:true,maximumAge:0});
 }
 
 /* ---------- corrida ---------- */
-const corrida={ativa:false,coords:[],dist:0,ini:0,timer:null};
+const corrida={ativa:false,coords:[],cru:[],dist:0,distCrua:0,tMov:0,ini:0,fim:0,timer:null,ritmoAviso:false};
 function largada(){
   if(!pos){aviso('Aguardando sua posição…',2500);return;}
-  corrida.ativa=true;corrida.coords=[pos.slice()];corrida.dist=0;corrida.ini=Date.now();
+  if(!gpsPronto()){aviso('Aguardando sinal bom do GPS ('+(ultAcc?'±'+Math.round(ultAcc)+' m':'sem leitura')+')…',2800);log('largada_bloqueada_precisao');return;}
+  corrida.ativa=true;corrida.coords=[pos.slice()];corrida.cru=[[pos[0],pos[1],ultAcc,Date.now()]];
+  corrida.dist=0;corrida.distCrua=0;corrida.tMov=0;corrida.ini=Date.now();corrida.fim=0;corrida.ritmoAviso=false;
+  gps.parado=true;gps.saida=0;gps.rumoPos=null;
   map.getSource('trilha').setData(vazio());
   map.getSource('replay').setData(vazio());
   $('card-idle').style.display='none';$('card-fim').style.display='none';$('card-run').style.display='block';
   seguir=true;$('seguir').classList.add('active');
-  atletaCorre(true);
+  atletaCorre(false);
   corrida.timer=setInterval(hud,500);
-  log('corrida_iniciada');
+  log('corrida_iniciada ±'+Math.round(ultAcc)+'m');
 }
-function registrarPonto(nova,acc){
+function registrarPonto(nova,acc,dt){
   const a=corrida.coords[corrida.coords.length-1];
   const d=haversine(a,nova);
-  if(d<1||d>80||acc>60)return;
-  corrida.dist+=d;
+  if(d<Math.max(4,0.6*acc)){gst.rej.parado++;return;}
+  if(dt>0&&d/dt>GPSF.V_MAX){
+    gst.rej.salto++;corrida.saltos=(corrida.saltos||0)+1;
+    if(corrida.saltos<3)return;
+    // 3 saltos seguidos: posição real mudou (túnel, sinal perdido). Continua daqui, sem somar o buraco.
+    corrida.saltos=0;corrida.coords.push(nova.slice());log('gps_relocado sem somar '+Math.floor(d)+'m');
+    map.getSource('trilha').setData({type:'Feature',geometry:{type:'LineString',coordinates:corrida.coords}});
+    return;
+  }
+  corrida.saltos=0;
+  corrida.dist+=d;corrida.tMov+=dt;
   corrida.coords.push(nova.slice());
   map.getSource('trilha').setData({type:'Feature',geometry:{type:'LineString',coordinates:corrida.coords}});
+}
+function ritmoTxt(){
+  if(corrida.dist<100||corrida.tMov<30)return '—';
+  const rt=corrida.tMov/(corrida.dist/1000);
+  if(rt<150){if(!corrida.ritmoAviso){log('ritmo_implausivel '+fmt(rt));corrida.ritmoAviso=true;}return '—';}
+  return fmt(rt)+'/km';
 }
 function hud(){
   const s=(Date.now()-corrida.ini)/1000;
   $('r-dist').textContent=Math.floor(corrida.dist);
   $('r-tempo').textContent=fmt(s);
-  if(corrida.dist>25){const rt=s/(corrida.dist/1000);$('r-ritmo').textContent=fmt(rt)+'/km';}
+  $('r-ritmo').textContent=ritmoTxt();
 }
 const fmt=s=>String(Math.floor(s/60)).padStart(2,'0')+':'+String(Math.floor(s%60)).padStart(2,'0');
 function finalizar(){
@@ -2121,11 +2295,179 @@ function finalizar(){
   const s=(corrida.fim-corrida.ini)/1000;
   $('f-dist').textContent=corrida.dist>=1000?(corrida.dist/1000).toFixed(2).replace('.',',')+' km':Math.floor(corrida.dist)+' m';
   $('f-tempo').textContent=fmt(s);
-  $('f-ritmo').textContent=corrida.dist>25?fmt(s/(corrida.dist/1000))+'/km':'—';
+  $('f-ritmo').textContent=ritmoTxt();
   $('card-run').style.display='none';$('card-fim').style.display='block';
-  log('corrida_finalizada dist='+Math.floor(corrida.dist)+'m');
+  painelGPS();
+  log('corrida_finalizada dist='+Math.floor(corrida.dist)+'m crua='+Math.floor(corrida.distCrua)+'m mov='+fmt(corrida.tMov)+' total='+fmt(s));
 }
 function novaCorrida(){$('card-fim').style.display='none';$('card-idle').style.display='block';map.getSource('trilha').setData(vazio());map.getSource('replay').setData(vazio());}
+
+/* ---------- BARROS ADAPTIVE MAP · 1.5.0 ---------- */
+/* Mesmo PMTiles, mesmas layers, mesmo GPS. Muda só a linguagem visual.
+   Tema automático por ciclo solar calculado localmente (data/hora e fuso do
+   telefone + posição do GPS já existente). Sem API, sem internet. */
+const MAP_THEMES={
+  day:{
+    background:'#E9EDF0', land:'#E0E5E9', building:'#CCD3DA', buildingOp:.8,
+    park:'#BFE3C5', parkOp:.9, green:'#CDE8D0', greenOp:.85,
+    water:'#A6CDEA', river:'#8DBBDD',
+    roadService:'#F8FAFB', roadLocal:'#FFFFFF', roadMedium:'#FDEBB0',
+    roadMajorOutline:'#C69A3E', roadMajor:'#F8C968',
+    labelLocal:'#5A6673', labelMain:'#3B4754', labelHood:'#6B7784', labelCity:'#28323D',
+    halo:'#FFFFFF', trailHalo:'#FFFFFF'
+  },
+  dusk:{
+    background:'#3B3C45', land:'#44454E', building:'#4D4F59', buildingOp:.8,
+    park:'#3E5A47', parkOp:.9, green:'#405947', greenOp:.85,
+    water:'#33506C', river:'#3E5F7D',
+    roadService:'#4B4D56', roadLocal:'#5D5F69', roadMedium:'#7B7382',
+    roadMajorOutline:'#2A2B32', roadMajor:'#B28B52',
+    labelLocal:'#BAB5B0', labelMain:'#DCD2C5', labelHood:'#C6B9A8', labelCity:'#EBE2D5',
+    halo:'#2A2B32', trailHalo:'#1D1E24'
+  },
+  night:{
+    background:'#0E1218', land:'#161C24', building:'#1F2731', buildingOp:.8,
+    park:'#18342B', parkOp:.95, green:'#173227', greenOp:.9,
+    water:'#10273E', river:'#183A5B',
+    roadService:'#232C37', roadLocal:'#303B48', roadMedium:'#46546B',
+    roadMajorOutline:'#0A0D12', roadMajor:'#A68752',
+    labelLocal:'#7E8A98', labelMain:'#A9B6C4', labelHood:'#8794A3', labelCity:'#C8D3DF',
+    halo:'#0E1218', trailHalo:'#0A0D12'
+  }
+};
+/* layer → [propriedade, token] */
+const THEME_MAP=[
+  ['fundo','background-color','background'],
+  ['uso-solo','fill-color','land'],
+  ['verde','fill-color','green'],['verde','fill-opacity','greenOp'],
+  ['parques','fill-color','park'],['parques','fill-opacity','parkOp'],
+  ['agua','fill-color','water'],
+  ['rios','line-color','river'],
+  ['predios','fill-color','building'],['predios','fill-opacity','buildingOp'],
+  ['vias-servico','line-color','roadService'],
+  ['vias-locais','line-color','roadLocal'],
+  ['vias-medias','line-color','roadMedium'],
+  ['vias-principais-contorno','line-color','roadMajorOutline'],
+  ['vias-principais','line-color','roadMajor'],
+  ['nome-vias-locais','text-color','labelLocal'],['nome-vias-locais','text-halo-color','halo'],
+  ['nome-vias-principais','text-color','labelMain'],['nome-vias-principais','text-halo-color','halo'],
+  ['nome-bairros','text-color','labelHood'],['nome-bairros','text-halo-color','halo'],
+  ['nome-cidades','text-color','labelCity'],['nome-cidades','text-halo-color','halo'],
+  ['trilha-halo','line-color','trailHalo']
+];
+const TEMA_TRANSICAO=2500; // ms · o mapa acompanha a mudança, não pula
+let temaAtual=null, temaPref=storageGet('mc_tema','auto'), solarInfo=null, temaTimer=null, temaPosTimer=null;
+
+function aplicarTemaMapa(nome,instantaneo){
+  const t=MAP_THEMES[nome];if(!t||!map.isStyleLoaded()){return;}
+  for(const [layer,prop,token] of THEME_MAP){
+    if(!map.getLayer(layer))continue;
+    try{
+      map.setPaintProperty(layer,prop+'-transition',{duration:instantaneo?0:TEMA_TRANSICAO,delay:0});
+      map.setPaintProperty(layer,prop,t[token]);
+    }catch(e){}
+  }
+  const ant=temaAtual;temaAtual=nome;
+  document.documentElement.dataset.tema=nome;
+  if($('e-tema'))$('e-tema').textContent=(temaPref==='auto'?'auto → ':'manual → ')+nome.toUpperCase();
+  if(ant&&ant!==nome)log('tema_alterado_'+ant+'_'+nome);
+  if(!ant)log('tema_'+nome);
+}
+
+/* ---- ciclo solar (algoritmo NOAA simplificado, local, determinístico) ---- */
+function solarLocal(data,lat,lng){
+  const r=Math.PI/180,d=x=>x/r;
+  const ini=new Date(data.getFullYear(),0,0);
+  const n=Math.floor((data-ini)/86400000);
+  const lngH=lng/15;
+  const tzH=-data.getTimezoneOffset()/60;
+  function evento(nascer,zenite){
+    const t=n+(((nascer?6:18)-lngH)/24);
+    const M=0.9856*t-3.289;
+    let L=M+1.916*Math.sin(M*r)+0.020*Math.sin(2*M*r)+282.634;L=(L%360+360)%360;
+    let RA=d(Math.atan(0.91764*Math.tan(L*r)));RA=(RA%360+360)%360;
+    const Lq=Math.floor(L/90)*90,RAq=Math.floor(RA/90)*90;RA=(RA+(Lq-RAq))/15;
+    const sinDec=0.39782*Math.sin(L*r),cosDec=Math.cos(Math.asin(sinDec));
+    const cosH=(Math.cos(zenite*r)-sinDec*Math.sin(lat*r))/(cosDec*Math.cos(lat*r));
+    if(cosH>1||cosH<-1)return null;
+    let H=nascer?360-d(Math.acos(cosH)):d(Math.acos(cosH));H/=15;
+    const T=H+RA-0.06571*t-6.622;
+    let UT=(T-lngH)%24;if(UT<0)UT+=24;
+    let local=(UT+tzH)%24;if(local<0)local+=24;
+    return local*60; // minutos do dia, hora local do aparelho
+  }
+  return {
+    dawn:evento(true,96), sunrise:evento(true,90.833),
+    sunset:evento(false,90.833), dusk:evento(false,96),
+    tz:(Intl.DateTimeFormat().resolvedOptions().timeZone||'?')
+  };
+}
+const hm=m=>m==null?'—':String(Math.floor(m/60)).padStart(2,'0')+':'+String(Math.floor(m%60)).padStart(2,'0');
+
+function estadoPorSol(agoraMin,s){
+  if(s.sunrise==null||s.sunset==null)return agoraMin>=390&&agoraMin<1080?'day':'night';
+  const dawn=s.dawn??(s.sunrise-25), duskEnd=s.dusk??(s.sunset+25);
+  if(agoraMin<dawn||agoraMin>=duskEnd)return 'night';
+  if(agoraMin<s.sunrise+20||agoraMin>=s.sunset-30)return 'dusk';
+  return 'day';
+}
+function estadoPorRelogio(agoraMin){ // só fallback temporário, até existir posição
+  if(agoraMin<330||agoraMin>=1140)return 'night';
+  if(agoraMin<390||agoraMin>=1020)return 'dusk';
+  return 'day';
+}
+function posicaoParaTema(){
+  if(typeof pos!=='undefined'&&pos){storageSet('mc_lastpos',JSON.stringify(pos));return {p:pos,origem:'gps'};}
+  try{const u=JSON.parse(storageGet('mc_lastpos','null'));if(u)return {p:u,origem:'ultima'};}catch(e){}
+  return null;
+}
+function temaAutomatico(){
+  const agora=new Date(),agoraMin=agora.getHours()*60+agora.getMinutes()+agora.getSeconds()/60;
+  const pp=posicaoParaTema();
+  let estado;
+  if(pp){
+    solarInfo=solarLocal(agora,pp.p[1],pp.p[0]);
+    estado=estadoPorSol(agoraMin,solarInfo);
+    if(!temaAutomatico.okLog||temaAutomatico.origem!==pp.origem){log('solar_calc_ok ('+pp.origem+') nascer '+hm(solarInfo.sunrise)+' por '+hm(solarInfo.sunset)+' crep '+hm(solarInfo.dusk)+' tz '+solarInfo.tz);temaAutomatico.okLog=true;temaAutomatico.origem=pp.origem;}
+    if($('e-sol'))$('e-sol').textContent=hm(solarInfo.sunrise)+' / '+hm(solarInfo.sunset)+' (crep. '+hm(solarInfo.dusk)+')';
+  } else {
+    estado=estadoPorRelogio(agoraMin);
+    if(!temaAutomatico.fbLog){log('solar_calc_fallback relógio, sem posição');temaAutomatico.fbLog=true;}
+    if($('e-sol'))$('e-sol').textContent='aguardando posição';
+  }
+  if($('e-fuso'))$('e-fuso').textContent=(Intl.DateTimeFormat().resolvedOptions().timeZone||'?')+' · '+hm(agoraMin);
+  return estado;
+}
+function atualizarTemaAutomatico(){
+  if(temaPref!=='auto')return;
+  const e=temaAutomatico();
+  if(e!==temaAtual)aplicarTemaMapa(e);
+}
+function definirTema(pref){
+  const ant=temaPref;temaPref=pref;storageSet('mc_tema',pref);
+  document.querySelectorAll('#seg-tema button').forEach(b=>b.classList.toggle('on',b.dataset.t===pref));
+  if(pref==='auto'){if(ant!=='auto')log('tema_auto_restaurado');atualizarTemaAutomatico();if($('e-tema'))$('e-tema').textContent='auto → '+(temaAtual||'—').toUpperCase();}
+  else {log('tema_manual '+pref);aplicarTemaMapa(pref);}
+}
+function iniciarTema(){
+  // halo da trilha: a atividade continua protagonista em qualquer tema
+  if(map.getLayer('trilha')&&!map.getLayer('trilha-halo')){
+    map.addLayer({id:'trilha-halo',type:'line',source:'trilha',layout:{'line-cap':'round','line-join':'round'},paint:{'line-color':'#0A0D12','line-width':9,'line-opacity':.85}},'trilha');
+  }
+  document.querySelectorAll('#seg-tema button').forEach(b=>{b.classList.toggle('on',b.dataset.t===temaPref);b.onclick=()=>definirTema(b.dataset.t);});
+  log('tema_auto_iniciado pref='+temaPref);
+  if(temaPref==='auto'){aplicarTemaMapa(temaAutomatico(),true);}
+  else aplicarTemaMapa(temaPref,true);
+  clearInterval(temaTimer);temaTimer=setInterval(atualizarTemaAutomatico,60000);
+  // primeira posição: reavalia assim que o GPS existente entregar (sem tocar no GPS)
+  clearInterval(temaPosTimer);temaPosTimer=setInterval(()=>{if(typeof pos!=='undefined'&&pos){atualizarTemaAutomatico();clearInterval(temaPosTimer);}},5000);
+  document.addEventListener('visibilitychange',()=>{if(!document.hidden)atualizarTemaAutomatico();});
+}
+/* registra o tema ativo na atividade finalizada, sem alterar finalizar() do GPS 1.4 */
+try{
+  const finalizarBase=finalizar;
+  finalizar=function(){finalizarBase();corrida.tema=temaAtual;log('atividade_tema '+temaAtual);};
+}catch(e){log('tema_hook_finalizar_fail '+(e&&e.message||e));}
 
 /* ---------- replay aéreo ---------- */
 function replay(){
@@ -2222,10 +2564,11 @@ async function compartilharBlob(){
 
 /* ---------- evidências / versão ---------- */
 $('e-app').textContent=APP_VERSION;
-fetch('tiles/barros-map-pe.version.json').then(r=>r.json()).then(v=>{$('e-mapv').textContent=v.mapVersion||'—';log('mapa_versao '+v.mapVersion);}).catch(()=>{$('e-mapv').textContent='—';});
+fetch('https://jeremias121210-stack.github.io/mapa-de-corrida/tiles/barros-map-pe.version.json').then(r=>r.json()).then(v=>{$('e-mapv').textContent=v.mapVersion||'—';log('mapa_versao '+v.mapVersion);}).catch(()=>{$('e-mapv').textContent='—';});
 
 estadoRede();
 iniciarGPS();
+log('boot_09_app_pronta');
 log('app_iniciada '+APP_VERSION);
 </script>
 </body>
