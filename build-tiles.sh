@@ -23,7 +23,7 @@ cat > public/tiles/barros-map-pe.version.json << FIMJSON
   "region": "Nordeste (recorte Pernambuco)",
   "buildDate": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
   "osmExtractDate": null,
-  "osmSourceRetrievedAt": "${OSM_RETRIEVED_AT}",
+  "iosmSourceRetrievedAt": "${OSM_RETRIEVED_AT}",
   "planetilerVersion": "${PLANETILER_VERSION}",
   "planetilerSha256": "${JAR_SHA}",
   "buildSeconds": $((FIM-INICIO)),
@@ -31,5 +31,5 @@ cat > public/tiles/barros-map-pe.version.json << FIMJSON
   "pmtilesSha256": "${SHA}"
 }
 FIMJSON
-cp mapa-corrida-1-7-0.html public/index.html
+cp mapa-corrida-1-7-2.html public/index.html
 echo ">> Mapa gerado: $((TAM/1048576)) MB"
