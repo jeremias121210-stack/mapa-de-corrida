@@ -2,12 +2,12 @@
   "mapVersion": "pe-20260830",
   "appVersion": "prova1-1.2.1",
   "region": "Nordeste (recorte Pernambuco)",
-  "buildDate": "2026-08-30T01:41:40Z",
+  "buildDate": "2026-08-30T16:37:10Z",
   "osmExtractDate": null,
-  "osmSourceRetrievedAt": "2026-08-30T01:38:23Z",
+  "osmSourceRetrievedAt": "2026-08-30T16:23:15Z",
   "planetilerVersion": "0.10.1",
   "planetilerSha256": "5e5e7d8c4fc89b4573cc9109d0a543c3c2c798b2bcde7c3dcd2214031ee59c29",
-  "buildSeconds": 197,
-  "pmtilesSize": 98923404,
-  "pmtilesSha256": "063489d1502de80bf0a29ff7e2de524e0cae7df22fa71319ecb45ad8dfdb1f92"
+  "buildSeconds": 834,
+  "pmtilesSize": 98924944,
+  "pmtilesSha256": "7a52f8aaad76cb38b211eafa6e399f292447f4bd8a3247f0c5654734f8604cc0"
 }
