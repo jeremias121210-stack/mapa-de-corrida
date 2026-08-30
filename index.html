@@ -1826,6 +1826,22 @@ html,body{height:100%;background:var(--asphalt);font-family:-apple-system,'Inter
 .chip.ok{color:var(--verde);border-color:rgba(53,224,138,.4)}
 .chip.warn{color:var(--gold);border-color:rgba(242,180,65,.4)}
 .chip.on{color:var(--route);border-color:rgba(255,107,53,.5)}
+.chip.loja{color:var(--route);border-color:rgba(255,107,53,.55);font-weight:800}
+/* Registro 2: indicador vivo de gravação */
+.rec-linha{display:flex;align-items:center;gap:7px;font-size:11px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;margin-bottom:8px}
+.rec-linha.grav{color:var(--route)}.rec-linha.pausa{color:var(--gold)}
+.rec-dot{width:9px;height:9px;border-radius:99px;background:var(--route);animation:rec-p 1.2s ease-in-out infinite}
+.rec-linha.pausa .rec-dot{background:var(--gold);animation:none}
+@keyframes rec-p{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.35;transform:scale(.75)}}
+/* Registro 3: caminho de volta sempre visível quando o mapa sai de cima do atleta */
+#pill-voltar{position:fixed;left:50%;transform:translateX(-50%);top:calc(max(14px,env(safe-area-inset-top)) + 74px);z-index:25;display:none;background:var(--route);color:#14181D;border:none;border-radius:99px;padding:11px 18px;font-family:'Archivo';font-weight:800;font-size:12px;letter-spacing:.08em;text-transform:uppercase;box-shadow:0 6px 18px rgba(0,0,0,.45)}
+#pill-voltar.on{display:block}
+/* Registro 5: pós-corrida premiada */
+.premio{background:linear-gradient(135deg,rgba(53,224,138,.14),rgba(53,224,138,.03));border:1px solid rgba(53,224,138,.45);border-radius:14px;padding:12px;margin-top:10px}
+.premio b{display:block;font-family:'Archivo';font-weight:900;font-size:13px;letter-spacing:.06em;text-transform:uppercase;color:var(--verde)}
+.premio p{font-size:12.5px;color:var(--ink);margin:4px 0 0;line-height:1.45}
+.premio small{display:block;font-size:10px;color:var(--dim);margin-top:4px;letter-spacing:.04em}
+.premio .btn{margin-top:10px;padding:12px;font-size:12px}
 
 /* controles de navegação */
 .nav{position:fixed;right:12px;top:44%;transform:translateY(-50%);z-index:10;display:flex;flex-direction:column;gap:8px}
@@ -2679,6 +2695,7 @@ await abrirDB();
 <div class="topo">
   <span class="marca">MAPA DE <b>CORRIDA</b></span>
   <div class="chips">
+    <span class="chip loja" id="c-loja">🛍 Galeria</span>
     <span class="chip" id="c-calor">Calor</span>
     <span class="chip" id="c-gps">GPS</span>
     <span class="chip" id="c-rede">Rede</span>
@@ -2697,6 +2714,8 @@ await abrirDB();
 <div class="aviso" id="aviso"></div>
 
 <!-- cartão: pronto -->
+<button id="pill-voltar" onclick="voltarParaMim()">◎ Voltar para mim</button>
+
 <div class="card" id="card-idle">
   <div class="rec" id="rec-box"><b>Corrida interrompida</b> <span id="rec-txt"></span>
     <div class="linha2"><button class="btn" onclick="AC.recuperar()">Recuperar</button><button class="btn sec" onclick="AC.descartarRecuperavel()">Descartar</button></div></div>
@@ -2712,6 +2731,7 @@ await abrirDB();
 
 <!-- cartão: correndo -->
 <div class="card" id="card-run" style="display:none">
+  <div class="rec-linha grav" id="rec-linha"><span class="rec-dot"></span><span id="rec-txt2">Gravando percurso</span></div>
   <div class="hud">
     <b><span id="r-dist">0</span><small> m</small></b>
     <div class="m">Tempo <i id="r-tempo">00:00</i><br>Ritmo <i id="r-ritmo">--:--</i></div>
@@ -2727,6 +2747,12 @@ await abrirDB();
   <div class="linha2">
     <button class="btn sec" onclick="abrirSheet('sheet-pose')">Foto de checkpoint</button>
     <button class="btn sec" onclick="cartao()">Compartilhar</button>
+  </div>
+  <div class="premio" id="f-premio" style="display:none">
+    <b>Sua corrida desbloqueou vantagens</b>
+    <p id="f-premio-txt">Até 10% para atletas e retirada grátis nos parceiros perto de você.</p>
+    <small>Parceiros de demonstração · rede em formação · nenhuma compra é obrigatória</small>
+    <button class="btn" onclick="GAL.abrir()">Ver na Galeria do Atleta</button>
   </div>
   <div class="salvo" id="f-salvo">Salva no histórico</div>
   <div class="linha2"><button class="btn mini" onclick="novaCorrida()">Nova corrida</button><button class="btn mini" onclick="HIST.abrir()">Ver histórico</button></div>
@@ -2783,8 +2809,9 @@ await abrirDB();
    1.7.0: Position Engine (cru/filtrado/esportiva + snap visual) · pin oficial · Body Scan V1
    1.7.1: Activity Core (atividade permanente, recuperação, histórico, foto da corrida, território) · zoom sem perder o seguir
    1.7.2: Galeria do Atleta com visual esportivo aprovado · Portal do Parceiro separado (ponte única: Quero ser parceiro) · Admin Barros fora do produto público
+   1.7.3: Registros 1-5 do teste de Jeremias — corrida sem deslocamento não grava · indicador GRAVANDO/PARADO · pílula Voltar para mim · Galeria no topo do mapa · vantagens desbloqueadas no pós-corrida
    ============================================================ */
-const APP_VERSION='corrida-web-1.7.2';
+const APP_VERSION='corrida-web-1.7.3';
 const TILES_FILE='tiles/barros-map-pe.pmtiles';
 const CARUARU=[-35.9758,-8.2827];
 
@@ -2882,10 +2909,12 @@ $('zout').onclick=()=>map.zoomOut();
 map.on('rotate',()=>{$('bussola').querySelector('svg').style.transform=`rotate(${-map.getBearing()}deg)`;});
 $('bussola').onclick=()=>map.easeTo({bearing:0,pitch:0,duration:400});
 let seguir=true;
+function seguirSet(v){seguir=v;$('seguir').classList.toggle('active',v);const p=$('pill-voltar');if(p)p.classList.toggle('on',!v);}
+function voltarParaMim(){seguirSet(true);if(map.getSource('hist-rota'))map.getSource('hist-rota').setData(vazio());if(pos)map.flyTo({center:PINV.cur||pos,zoom:Math.max(map.getZoom(),16)});}
 $('seguir').classList.add('active');
-$('seguir').onclick=()=>{seguir=true;$('seguir').classList.add('active');if(pos)map.flyTo({center:pos,zoom:Math.max(map.getZoom(),16)});};
+$('seguir').onclick=()=>{voltarParaMim();};
 /* 1.7.1: só arrastar com UM dedo desliga o seguir. Pinça (zoom) e botões +/- nunca desligam. */
-map.on('dragstart',e=>{const t=e&&e.originalEvent&&e.originalEvent.touches;if(t&&t.length>1)return;seguir=false;$('seguir').classList.remove('active');});
+map.on('dragstart',e=>{const t=e&&e.originalEvent&&e.originalEvent.touches;if(t&&t.length>1)return;seguirSet(false);});
 map.on('zoomend',()=>{if(seguir&&pos&&!map.isMoving())map.easeTo({center:PINV.cur||pos,duration:300});});
 
 /* ---------- PIN OFICIAL DO ATLETA (1.7.0) ----------
@@ -3137,7 +3166,7 @@ function largada(){
   map.getSource('trilha').setData(vazio());
   map.getSource('replay').setData(vazio());
   $('card-idle').style.display='none';$('card-fim').style.display='none';$('card-run').style.display='block';
-  seguir=true;$('seguir').classList.add('active');
+  seguirSet(true);
   atletaCorre(false);
   corrida.timer=setInterval(hud,500);
   AC.iniciar();
@@ -3174,14 +3203,27 @@ function ritmoTxt(){
 }
 function hud(){
   const s=(Date.now()-corrida.ini)/1000;
+  const rl=$('rec-linha');
+  if(rl){const parado=gps.parado;rl.className='rec-linha '+(parado?'pausa':'grav');
+    $('rec-txt2').textContent=parado?'Parado · aguardando movimento':'Gravando percurso';}
   $('r-dist').textContent=Math.floor(corrida.dist);
   $('r-tempo').textContent=fmt(s);
   $('r-ritmo').textContent=ritmoTxt();
 }
 const fmt=s=>String(Math.floor(s/60)).padStart(2,'0')+':'+String(Math.floor(s%60)).padStart(2,'0');
+const DIST_MINIMA=25; // m · abaixo disso não existe corrida
 function finalizar(){
   corrida.ativa=false;clearInterval(corrida.timer);atletaCorre(false);
   corrida.fim=Date.now();
+  if(corrida.dist<DIST_MINIMA){
+    // Registro 1: sem deslocamento real, nada é gravado e nada vira território
+    AC.descartarAtual();
+    $('card-run').style.display='none';$('card-idle').style.display='block';
+    map.getSource('trilha').setData(vazio());
+    aviso('Nenhum deslocamento registrado: corrida descartada, nada foi salvo.',4200);
+    log('corrida_descartada_sem_deslocamento dist='+Math.floor(corrida.dist)+'m');
+    return;
+  }
   const s=(corrida.fim-corrida.ini)/1000;
   $('f-dist').textContent=corrida.dist>=1000?(corrida.dist/1000).toFixed(2).replace('.',',')+' km':Math.floor(corrida.dist)+' m';
   $('f-tempo').textContent=fmt(s);
@@ -3223,7 +3265,7 @@ const AC={
   apagar(id){return new Promise(res=>{if(!idb)return res(false);const t=idb.transaction(['atividades','fotos'],'readwrite');t.objectStore('atividades').delete(id);const ix=t.objectStore('fotos').index('activityId');ix.openKeyCursor(IDBKeyRange.only(id)).onsuccess=e=>{const k=e.target.result;if(k){t.objectStore('fotos').delete(k.primaryKey);k.continue();}};t.oncomplete=()=>res(true);t.onerror=()=>res(false);});},
   fotosDe(id){return new Promise(res=>{if(!idb)return res([]);const out=[];try{const ix=idb.transaction('fotos').objectStore('fotos').index('activityId');ix.openCursor(IDBKeyRange.only(id)).onsuccess=e=>{const k=e.target.result;if(k){out.push(k.value);k.continue();}else res(out);};}catch(e){res([]);}});},
   iniciar(){
-    AC.atual=AC.nova();AC.ultima=null;$('f-salvo').style.display='none';
+    AC.atual=AC.nova();AC.ultima=null;$('f-salvo').style.display='none';const pr=$('f-premio');if(pr)pr.style.display='none';
     AC.salvar();clearInterval(AC.timer);AC.timer=setInterval(()=>AC.salvar(),AC.INTERVALO);
     log('atividade_criada '+AC.atual.activityId);
   },
@@ -3243,7 +3285,7 @@ const AC={
     a.ritmo=(a.dist>=100&&a.tMov>=30)?Math.round(a.tMov/(a.dist/1000)):null;
     const t=TERR.avaliar(a.coords);a.territorio={celulas:t.celulas,novas:t.novas,total:t.celulas.length};
     const ok=await AC.put(a);
-    if(ok){TERR.adicionar(a);$('f-salvo').style.display='block';$('f-salvo').textContent='Salva no histórico'+(t.novas?' · território novo: ~'+(t.novas*TERR.CELULA)+' m':'');log('atividade_finalizada '+a.activityId+' novas='+t.novas);}
+    if(ok){TERR.adicionar(a);const pr=$('f-premio');if(pr)pr.style.display='block';$('f-salvo').style.display='block';$('f-salvo').textContent='Salva no histórico'+(t.novas?' · território novo: ~'+(t.novas*TERR.CELULA)+' m':'');log('atividade_finalizada '+a.activityId+' novas='+t.novas);}
     else{$('f-salvo').style.display='block';$('f-salvo').textContent='Não foi possível gravar';}
     AC.ultima=a;AC.atual=null;
   },
@@ -3275,12 +3317,13 @@ const AC={
     gps.parado=true;gps.saida=0;gps.rumoPos=null;PE.snapOn=false;
     map.getSource('trilha').setData({type:'Feature',geometry:{type:'LineString',coordinates:corrida.coords}});
     $('rec-box').style.display='none';$('card-idle').style.display='none';$('card-fim').style.display='none';$('card-run').style.display='block';
-    seguir=true;$('seguir').classList.add('active');
+    seguirSet(true);
     corrida.timer=setInterval(hud,500);hud();
     a.estado='ativa';a.recuperadaEm=Date.now();AC.atual=a;AC.recuperavel=null;
     AC.salvar();clearInterval(AC.timer);AC.timer=setInterval(()=>AC.salvar(),AC.INTERVALO);
     log('atividade_recuperada '+a.activityId);
   },
+  async descartarAtual(){clearInterval(AC.timer);const a=AC.atual;if(!a)return;a.estado='descartada';await AC.put(a);AC.atual=null;AC.ultima=null;},
   async descartarRecuperavel(){const a=AC.recuperavel;if(!a)return;a.estado='descartada';await AC.put(a);AC.recuperavel=null;$('rec-box').style.display='none';log('atividade_descartada '+a.activityId);}
 };
 addEventListener('pagehide',()=>{if(AC.atual)AC.salvar();});
@@ -3344,7 +3387,7 @@ const HIST={
   },
   verNoMapa(){const a=HIST.sel;if(!a||a.coords.length<2)return;HIST.fechar();
     map.getSource('hist-rota').setData({type:'Feature',geometry:{type:'LineString',coordinates:a.coords}});
-    const b=new maplibregl.LngLatBounds();a.coords.forEach(p=>b.extend(p));seguir=false;$('seguir').classList.remove('active');map.fitBounds(b,{padding:70,duration:1200});
+    const b=new maplibregl.LngLatBounds();a.coords.forEach(p=>b.extend(p));seguirSet(false);map.fitBounds(b,{padding:70,duration:1200});
     aviso('Percurso de '+new Date(a.inicio).toLocaleDateString('pt-BR')+'. Toque em ◎ para voltar à sua posição.',4000);log('historico_ver_mapa');},
   replayDet(){const a=HIST.sel;if(!a)return;HIST.fechar();$('card-idle').style.display='none';replay(a.coords,()=>{$('card-idle').style.display='block';map.getSource('replay').setData(vazio());});},
   compartilharDet(){const a=HIST.sel;if(!a)return;
@@ -3383,6 +3426,7 @@ const GAL={
   }
 };
 $('btn-gal').addEventListener('click',GAL.abrir);
+$('c-loja').addEventListener('click',GAL.abrir);
 
 /* ---------- BARROS ADAPTIVE MAP · 1.5.0 ---------- */
 /* Mesmo PMTiles, mesmas layers, mesmo GPS. Muda só a linguagem visual.
@@ -3556,7 +3600,7 @@ function replay(coordsOpt,aoFim){
   const c=coordsOpt||corrida.coords;
   if(c.length<2){aviso('Percurso curto demais para replay.',2500);return;}
   fecharSheets();$('card-fim').style.display='none';
-  seguir=false;$('seguir').classList.remove('active');
+  seguirSet(false);
   const cum=[0];for(let i=1;i<c.length;i++)cum.push(cum[i-1]+haversine(c[i-1],c[i]));
   const total=cum[cum.length-1];
   const dur=Math.min(14000,Math.max(6000,total*4));
