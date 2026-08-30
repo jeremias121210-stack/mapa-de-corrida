@@ -31,5 +31,5 @@ cat > public/tiles/barros-map-pe.version.json << FIMJSON
   "pmtilesSha256": "${SHA}"
 }
 FIMJSON
-cp mapa-corrida-1-3-0.html public/index.html
+cp mapa-corrida-1-5-1-PREVIEW.html public/index.html
 echo ">> Mapa gerado: $((TAM/1048576)) MB"
